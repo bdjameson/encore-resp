@@ -1,0 +1,65 @@
+---
+title: "Oxy10 Respiration"
+author: "Brett D. Jameson"
+date: "11/05/2023"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
+library(dplyr)
+```
+
+## Coral Respiration Data Analysis
+
+This file contains code scripts for processing, visualization, and analysis of coral respiration data obtained from the PreSens Oxy10 Respiration chamber system.
+
+## Read and combine all data files
+
+First we need to read all of the discrete Oxy10 data files for each run and combine them into a single dataframe. We will use the filename as the initial identifier.
+
+```{r Oxy10 Data, include=FALSE}
+library(data.table)  
+files <- list.files(path = "./oxy10-data/oxy10-thermal-stress/", pattern = ".csv")
+setwd("./oxy10-data/oxy10-thermal-stress/")
+oxy10 <- rbindlist(sapply(files, fread, simplify = FALSE), idcol = 'filename')
+```
+
+## Data processing and cleaning 
+
+Now we can separate the filename into discrete columns using "_" as the identifier allowing us to parse each Oxy10 run by the coral species and fragment IDs.
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r Data trim and clean, include=FALSE}
+library(tidyverse)
+
+colnames(oxy10) <- make.unique(colnames(oxy10))
+
+oxy10_clean <- oxy10 %>% 
+  separate(filename, 
+  into = c('Instrument', 'Date.NA', 'Run', 'Chamber', 'Species', 'FragmentID'), sep = "_")
+
+oxy10_clean$FragmentID <- gsub("\\..*", "", as.character(oxy10_clean$FragmentID))
+
+oxy10_clean <- oxy10_clean %>% # Select relevant columns
+  select(Run, Chamber, Species, FragmentID, Date, Time, Channel, delta_t, Time_Unit, Value, Temp, Salinity)
+
+oxy10_clean <- oxy10_clean %>% # move Date to first position
+  dplyr::select("Date", everything())
+
+oxy10_clean <- oxy10_clean %>%
+  rename(Oxygen_uM = Value)
+```
+
+Next we will trim the data frame to remove irrelevant columns.
+
+```{r}
+
+```
+
+```{r}
+
+```
+
