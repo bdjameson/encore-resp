@@ -7,8 +7,6 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(plyr)
-library(dplyr)
 ```
 
 ## Coral Respiration Data Analysis
@@ -21,6 +19,9 @@ First we need to read all of the discrete Oxy10 data files for each run and comb
 
 ```{r Oxy10 Data, include=FALSE}
 library(data.table)  
+library(plyr)
+library(dplyr)
+
 files <- list.files(path = "./oxy10-data/oxy10-thermal-stress/", pattern = ".csv")
 setwd("./oxy10-data/oxy10-thermal-stress/")
 oxy10 <- rbindlist(sapply(files, fread, simplify = FALSE), idcol = 'filename')
