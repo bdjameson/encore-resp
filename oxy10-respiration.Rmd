@@ -53,13 +53,74 @@ oxy10_clean <- oxy10_clean %>%
   rename(Oxygen_uM = Value)
 ```
 
-Next we will trim the data frame to remove irrelevant columns.
+## Processing and analysis of respirometry data
 
-```{r}
+Now that we data merged from all Oxy10 runs we can explore the raw data. First we will subset the main data into the descrete time points and then plot the raw data using ggplot2. 
 
+```{r Data subsetting}
+T0 <- oxy10_clean %>% 
+    subset(Date== "09/28/2022" | Date=="09/29/2022" | Date=="09/30/2022" & FragmentID != "insitu")
+
+T0_situ <- oxy10_clean %>% 
+  subset(Date== "09/30/2022" & FragmentID == "insitu")
+
+T1 <- oxy10_clean %>% 
+    subset(Date== "10/12/2022" | Date=="10/13/2022" | Date=="10/14/2022" & FragmentID != "insitu")
+
+T1_situ <- oxy10_clean %>% 
+    subset(Date== "10/14/2022" & FragmentID == "insitu")
+
+T2 <- oxy10_clean %>% 
+    subset(Date== "10/19/2022" | Date=="10/20/2022" & FragmentID != "insitu")
+
+T3 <- oxy10_clean %>% 
+    subset(Date== "10/30/2022" | Date=="10/31/2022" | Date=="11/01/2022" & FragmentID != "insitu")
+
+T3_situ <- oxy10_clean %>% 
+  subset(Date== "10/30/2022"  & FragmentID == "insitu")
+
+T4 <- oxy10_clean %>% 
+    subset(Date== "11/15/2022" | Date=="10/16/2022" & FragmentID != "insitu")
+
+T4_situ <- oxy10_clean %>% 
+  subset(Date== "11/16/2022"  & FragmentID == "insitu")
 ```
 
-```{r}
+```{r Raw data plots}
+ggplot(T0, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~FragmentID, scales = "free")
 
+ggplot(T0_situ, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~Species, scales = "free")
+
+ggplot(T1, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~FragmentID, scales = "free")
+
+ggplot(T1_situ, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~Species, scales = "free")
+
+ggplot(T2, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~FragmentID, scales = "free")
+
+ggplot(T3, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~FragmentID, scales = "free")
+
+ggplot(T3_situ, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~Species, scales = "free")
+
+ggplot(T4, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~FragmentID, scales = "free")
+
+ggplot(T4_situ, aes(delta_t, Oxygen_uM)) +
+  geom_path() +
+  facet_wrap(~Species, scales = "free")
 ```
 
