@@ -6,124 +6,214 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+## install packages if you dont already have them in your library
+if (!require("devtools")) install.packages("devtools")
+if (!require("furrr")) install.packages("furrr")
+if (!require("future")) install.packages("future")
+if (!require("tidyverse")) install.packages("tidyverse")
+if (!require("lubridate")) install.packages("lubridate")
+if (!require("cowplot")) install.packages("cowplot")
+if (!require("LoLinR")) install_github('colin-olito/LoLinR') 
+
+## load libraries
+library(devtools)
+library(LoLinR)
+library(tidyverse)
+library(lubridate)
+library(cowplot)
+library(data.table)
+library(hms)
+
+## libraries for parallel processing
+library(future)
+library(furrr)
 ```
 
 ## Coral Respiration Data Analysis
 
-This file contains code scripts for processing, visualization, and analysis of coral respiration data obtained from the PreSens Oxy10 Respiration chamber system.
+This file contains code scripts for processing, visualization, and analysis of coral respiration data obtained from the PreSens Oxy10 Respiration chamber system. Code scripts were adapted from the Putnam Lab at URI which can be found at https://github.com/hputnam/LightCurve_TPC/tree/main/RAnalysis/scripts.
 
 ## Read and combine all data files
 
-First we need to read all of the discrete Oxy10 data files for each run and combine them into a single dataframe. We will use the filename as the initial identifier.
+First we need to read all of the discrete Oxy10 data files for each run and combine them with the Oxy10 incubation metadata containing the light/dark cycle times. We will start by telling R where to look for all of our data files.  
 
-```{r Oxy10 Data, include=FALSE}
-library(data.table)  
-library(plyr)
-library(dplyr)
+```{r}
+path.p = "./oxy10-data/oxy10-thermal-stress/" #the location of all your respirometry files 
 
-files <- list.files(path = "./oxy10-data/oxy10-thermal-stress/", pattern = ".csv")
-setwd("./oxy10-data/oxy10-thermal-stress/")
-oxy10 <- rbindlist(sapply(files, fread, simplify = FALSE), idcol = 'filename')
+# List data files
+file.names <- list.files(path = path.p, pattern = "csv$")  # list all csv file names in the folder
+file.names <- file.names[!grepl("metadata", file.names)]   # omit metadata from files to be read in as data
 ```
 
-## Data processing and cleaning 
+Next we will read the metadata and manipulate it into a usable table. To do this we need to combine the light and dark start/stop times into single start/stop columns with a corresponding light or dark cycle identifier column. 
 
-Now we can separate the filename into discrete columns using "_" as the identifier allowing us to parse each Oxy10 run by the coral species and fragment IDs.
+```{r}
+metadata <- read.csv(file="./oxy10-data/Oxy10_Incubation_MetaData_clean.csv")
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+# Change metadata class to type Tibble
+metadata <-as.tibble(metadata)
 
-```{r Data trim and clean, include=FALSE}
-library(tidyverse)
+# We need to manipulate the metadata table to vertically stack start/stop times for light versus dark incubations
+metadata <- metadata %>% slice(rep(1:n(), each = 2))
 
-colnames(oxy10) <- make.unique(colnames(oxy10))
-
-oxy10_clean <- oxy10 %>% 
-  separate(filename, 
-  into = c('Instrument', 'Date.NA', 'Run', 'Chamber', 'Species', 'FragmentID'), sep = "_")
-
-oxy10_clean$FragmentID <- gsub("\\..*", "", as.character(oxy10_clean$FragmentID))
-
-oxy10_clean <- oxy10_clean %>% # Select relevant columns
-  select(Run, Chamber, Species, FragmentID, Date, Time, Channel, delta_t, Time_Unit, Value, Temp, Salinity)
-
-oxy10_clean <- oxy10_clean %>% # move Date to first position
-  dplyr::select("Date", everything())
-
-oxy10_clean <- oxy10_clean %>%
-  rename(Oxygen_uM = Value)
+metadata <- metadata %>% 
+  mutate(Light_dark = ifelse(row_number() %% 2 == 0, "Dark", "Light")) %>%
+  mutate(Start.time = as_hms(ifelse(row_number() %% 2 == 0, Dark_start,  Light_start))) %>%
+  mutate(Stop.time = as_hms(ifelse(row_number() %% 2 == 0, Dark_stop,  Light_stop))) 
 ```
 
-## Processing and analysis of respirometry data
+Now we will perform some additional wrangling of the metadata to select our relevant variables, set date classes, and select the experiment we want to work with.
 
-Now that we data merged from all Oxy10 runs we can explore the raw data. First we will subset the main data into the descrete time points and then plot the raw data using ggplot2. 
+```{r}
+# Select only certain columns
+metadata <- metadata %>% 
+  mutate(Date = as_date(as.character(Date), format = "%Y%m%d", tz = "Atlantic"))
 
-```{r Data subsetting}
-T0 <- oxy10_clean %>% 
-    subset(Date== "09/28/2022" | Date=="09/29/2022" | Date=="09/30/2022" & FragmentID != "insitu")
-
-T0_situ <- oxy10_clean %>% 
-  subset(Date== "09/30/2022" & FragmentID == "insitu")
-
-T1 <- oxy10_clean %>% 
-    subset(Date== "10/12/2022" | Date=="10/13/2022" | Date=="10/14/2022" & FragmentID != "insitu")
-
-T1_situ <- oxy10_clean %>% 
-    subset(Date== "10/14/2022" & FragmentID == "insitu")
-
-T2 <- oxy10_clean %>% 
-    subset(Date== "10/19/2022" | Date=="10/20/2022" & FragmentID != "insitu")
-
-T3 <- oxy10_clean %>% 
-    subset(Date== "10/30/2022" | Date=="10/31/2022" | Date=="11/01/2022" & FragmentID != "insitu")
-
-T3_situ <- oxy10_clean %>% 
-  subset(Date== "10/30/2022"  & FragmentID == "insitu")
-
-T4 <- oxy10_clean %>% 
-    subset(Date== "11/15/2022" | Date=="10/16/2022" & FragmentID != "insitu")
-
-T4_situ <- oxy10_clean %>% 
-  subset(Date== "11/16/2022"  & FragmentID == "insitu")
+metadata <- metadata %>% 
+  #mutate(fragment_id = gsub(".*-","", colony_id)) %>%
+  subset(Experiment=="Thermal") %>% 
+  select(Species, colony_id, fragment_id, Chamber_vol, Date, Start.time, Stop.time, Light_dark)
 ```
 
-```{r Raw data plots}
-ggplot(T0, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~FragmentID, scales = "free")
+## Read Oxy10 data files
 
-ggplot(T0_situ, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~Species, scales = "free")
+Next we will search the relevant directory for all of the Oxy10 data files corresponding to the given experiment. We will use the filename as the initial identifier to set the colony id column. This column will be used to match the Oxy10 data to the metadata. 
 
-ggplot(T1, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~FragmentID, scales = "free")
+```{r, results="hide", message=FALSE}
+pattern = ".*_([^_]*_[^_]*)$" # define regex pattern for colony id extraction
 
-ggplot(T1_situ, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~Species, scales = "free")
+df <- tibble(file.name = file.names) %>%
+  mutate(colony_id = gsub(pattern, "\\1", file.name)) %>% # Get colony_id from filename
+  mutate(colony_id = gsub("\\..*", "", colony_id)) %>% # couldn't figure out how to do this in one regex expression
+  mutate(colony_id = gsub("_", "-", colony_id)) %>%
+  mutate(info = map(colony_id, ~filter(metadata, colony_id == .)),   # Get associated sample info
+         data0 = map(file.name, ~read_csv(file.path(path.p, .), skip=1, col_types = cols(.default = "d", Time = "t"))))   # Get associated O2 data
 
-ggplot(T2, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~FragmentID, scales = "free")
-
-ggplot(T3, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~FragmentID, scales = "free")
-
-ggplot(T3_situ, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~Species, scales = "free")
-
-ggplot(T4, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~FragmentID, scales = "free")
-
-ggplot(T4_situ, aes(delta_t, Oxygen_uM)) +
-  geom_path() +
-  facet_wrap(~Species, scales = "free")
-
-# Testing repo move/rename changes.
+# Select only Time, Value, and Temp columns from O2 data
+df <- df %>%
+  mutate(data0 = map(data0, ~select(., Time, Value, Temp))) #%>%
+  #mutate(data0 = map(data0, ~(.x %>% filter(complete.cases(.))))) #remove NAs to get rid of artifact line in our data
 ```
+
+## Link Oxy10 data with light/dark cycles
+
+We use the time breaks in the sample metadata (info) to link O2 data with light/dark cycles.
+
+```{r, warning = FALSE}
+df <- df %>%
+  mutate(intervals = map2(data0, info, function(.x, .y) {
+    split(.x, f = cut(as.numeric(.x$Time), breaks = as.numeric(c(.y$Start.time, last(.y$Stop.time))),
+                      labels = as.character(.y$Light_dark)))})) %>%
+  mutate(data = map(intervals, ~ unnest(tibble(.), .id = "Light_dark")))
+
+## 'data' now contains the O2 data with the corresponding light value as another column
+## Example of what 'data' for each sample looks like:
+df$data[[4]]
+```
+
+
+# Data thinning and regression diagnostics
+
+Next we thin the data to remove some data points. Then we will select a colony to view a comparison of the thinned datasets versus thinned datasets.
+
+```{r, fig.height = 8, fig.width = 8}
+# Set thinning parameter
+thin_par <- 20
+
+# Thin data for all samples
+df <- df %>%
+  mutate(thin_data = map(data, ~ slice(., seq(1, nrow(.), thin_par))))
+
+# Create plots for full dataset and thinned data
+df <- df %>%
+  mutate(data_plot = map2(data, colony_id, ~ ggplot(.x, aes(x = Time, y = Value)) + 
+                            facet_wrap(~ as.numeric(Light_dark), scales = "free") +
+                            geom_point() +
+                            labs(title = .y)),
+    thin_data_plot = map2(thin_data, colony_id, ~ ggplot(.x, aes(x = Time, y = Value)) + 
+                            facet_wrap(~ as.numeric(Light_dark), scales = "free") +
+                            geom_point() +
+                            labs(title = .y)))
+
+# Example of plots
+cowplot::plot_grid(df$data_plot[[4]], df$thin_data_plot[[4]], nrow = 2,
+                   labels = c("Example plot: all data", "Example plot: thinned data"))
+```
+
+The full or thinned data plot for any sample can be accessed like this:
+
+```{r Plot data for individual colonies}
+df %>%
+  filter(colony_id == "DLAB-D0934") %>%
+  pull(thin_data_plot)
+```
+
+## Fit linear regressions to light and dark intervals
+
+The 'LolinR' package is called here to fit a series of linear regressions to each light/dark interval. This allows us to remove noise and select the best model for the linear range of each experiment.
+
+```{r Regression model fitting}
+# Define function for fitting LoLinR regressions to be applied to all intervals for all samples
+fit_reg <- function(df) {
+  rankLocReg(xall = as.numeric(df$Time), yall = df$Value, 
+             alpha = 0.2, method = "pc", verbose = FALSE)
+}
+
+# Setup for parallel processing
+future::plan(multisession)
+
+# Map LoLinR function onto all intervals of each sample's thinned dataset
+df <- df %>%
+  mutate(regs = furrr::future_map(thin_data, function(.) {       # future_map executes function in parallel
+    group_by(., Light_dark) %>%
+    do(rankLcRg = fit_reg(.))
+  }))
+
+## Now 'regs' contains the fitted local regressions for each interval of each sample's thinned dataset
+
+# Define function to pull out and plot regression diagnostics
+plot_rankLcRg <- function(colony_id, interval_number) {
+  df %>%
+    filter(colony_id == colony_id) %>%
+    pluck("regs", 1, "rankLcRg", interval_number) %>%
+    plot()
+}
+```
+
+The diagnostics for any regression can be plotted like this, specifying a colony_id and the number of the light curve interval:
+
+```{r Regression diagnostics}
+# pdf("output/Past-D1_test.pdf")
+plot_rankLcRg("DLAB-D0934", 1)
+plot_rankLcRg("DLAB-D0934", 2)
+# dev.off()
+```
+
+### Extract slope of best regression for each interval for each sample
+
+```{r Extract slopes}
+df.out <- df %>% 
+  unnest(regs) %>%
+  mutate(micromol.L.s = map_dbl(rankLcRg, ~ pluck(., "allRegs", "b1", 1)))
+```
+
+### Adjust by chamber volume and normalize to surface area
+
+```{r}
+### Merge rates with sample info
+pr <- left_join(
+  select(df.out,colony_id, Light_Value, micromol.L.s),
+  distinct(metadata, Species,colony_id, Run, Chamber.Vol.L))
+
+###Remove extra light step from Run 1
+pr <-pr %>% filter(!Light_Value>550)
+```
+
+
+
+
+
+
 
