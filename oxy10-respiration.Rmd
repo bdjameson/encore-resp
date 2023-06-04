@@ -31,9 +31,9 @@ library(future)
 library(furrr)
 ```
 
-## Coral Respiration Data Analysis
+## Coral Respiration Data Analysis - Step 1 (Raw data processing)
 
-This file contains code scripts for processing, visualization, and analysis of coral respiration data obtained from the PreSens Oxy10 Respiration chamber system. Code scripts were adapted from the Putnam Lab at URI which can be found at https://github.com/hputnam/LightCurve_TPC/tree/main/RAnalysis/scripts.
+This file contains code scripts for Step 1 of processing, visualization, and analysis of coral photosynthesis/respiration data obtained from the PreSens Oxy10 Respiration chamber system. Code scripts were adapted from the Putnam Lab at URI which can be found at https://github.com/hputnam/LightCurve_TPC/tree/main/RAnalysis/scripts.
 
 ## Read and combine all data files
 
@@ -55,6 +55,9 @@ metadata <- read.csv(file="./oxy10-data/Oxy10_Incubation_MetaData_clean.csv")
 # Change metadata class to type Tibble
 metadata <-as.tibble(metadata)
 
+# Convert chamber volume to L
+metadata$Chamber.vol.L <- metadata$Chamber_vol/1000
+
 # We need to manipulate the metadata table to vertically stack start/stop times for light versus dark incubations
 metadata <- metadata %>% slice(rep(1:n(), each = 2))
 
@@ -62,6 +65,14 @@ metadata <- metadata %>%
   mutate(Light_dark = ifelse(row_number() %% 2 == 0, "0", "1")) %>%
   mutate(Start.time = as_hms(ifelse(row_number() %% 2 == 0, Dark_start,  Light_start))) %>%
   mutate(Stop.time = as_hms(ifelse(row_number() %% 2 == 0, Dark_stop,  Light_stop))) 
+
+# Add ambient versus heated identifiers
+metadata$Treatment <- ifelse(metadata$Tank == 1, "Heated 1",
+                      ifelse(metadata$Tank == 2, "Ambient 2",
+                      ifelse(metadata$Tank == 3, "Ambient 1",
+                      ifelse(metadata$Tank == 4, "Heated 2",
+                      ifelse(metadata$Tank == 5, "Heated 3", "Ambient 3"
+                      )))))
 ```
 
 Now we will perform some additional wrangling of the metadata to select our relevant variables, set date classes, and select the experiment we want to work with.
@@ -72,9 +83,13 @@ metadata <- metadata %>%
   mutate(Date = as_date(as.character(Date), format = "%Y%m%d", tz = "Atlantic"))
 
 metadata <- metadata %>% 
-  #mutate(fragment_id = gsub(".*-","", colony_id)) %>%
+  mutate(fragment_id = gsub(".*-","", colony_id)) %>%
+  mutate(colony_initial = substr(fragment_id, 1, 1)) %>%
+  mutate(colony_initial = paste(Species, colony_initial, sep="-")) %>%
   subset(Experiment=="Thermal") %>% 
-  select(Species, colony_id, Run_total, Chamber_vol, Date, Start.time, Stop.time, Light_dark)
+  dplyr::select(Species, colony_initial, colony_id, Run_total, Treatment, Chamber.vol.L, Date, Start.time, Stop.time, Light_dark)
+
+metadata$colony_initial <- ifelse(metadata$colony_initial == "I", "in situ", metadata$colony_initial)
 ```
 
 ## Read Oxy10 data files
@@ -93,8 +108,8 @@ df <- tibble(file.name = file.names) %>%
 
 # Select only Time, Value, and Temp columns from O2 data
 df <- df %>%
-  mutate(data0 = map(data0, ~select(., Time, Value, Temp))) #%>%
-  #mutate(data0 = map(data0, ~(.x %>% filter(complete.cases(.))))) #remove NAs to get rid of artifact line in our data
+  mutate(data0 = map(data0, ~dplyr::select(., Time, Value, Temp))) %>%
+  mutate(data0 = map(data0, ~(.x %>% filter(complete.cases(.))))) #remove NAs to get rid of artifact line in our data
 ```
 
 ## Link Oxy10 data with light/dark cycles
@@ -110,7 +125,7 @@ df <- df %>%
 
 ## 'data' now contains the O2 data with the corresponding light value as another column
 ## Example of what 'data' for each sample looks like:
-df$data[[4]]
+df$data[[148]]
 ```
 
 
@@ -146,7 +161,7 @@ The full or thinned data plot for any sample can be accessed like this:
 
 ```{r Plot data for individual colonies}
 df %>%
-  filter(colony_id == "DLAB-D0934") %>%
+  filter(colony_id == "PAST-IPA09") %>%
   pull(thin_data_plot)
 ```
 
@@ -204,8 +219,8 @@ df.out <- df %>%
 ```{r}
 ### Merge rates with sample info
 pr <- left_join(
-  select(df.out,colony_id, Light_dark, micromol.L.s),
-  distinct(metadata, Species, colony_id, Run_total, Chamber_vol))
+  dplyr::select(df.out,colony_id, Light_dark, micromol.L.s),
+  distinct(metadata, Species, colony_initial, colony_id, Run_total, Treatment, Chamber.vol.L))
 ```
 
 # Correct for chamber volume and blanks
@@ -219,12 +234,12 @@ pr <- pr %>%
 # Get blank values -- average for each run and light value in case multiple blanks
 blanks <- pr %>%
   filter(grepl("BLNK", colony_id)) %>%
-  mutate(micromol.s.blank = micromol.L.s * Chamber_vol)%>%
+  mutate(micromol.s.blank = micromol.L.s * Chamber.vol.L)%>%
   group_by(Run_total, Light_dark) %>%
   mutate(blank_id=paste0(Run_total,"_","blank"))%>%
   mutate(Run_blank_light=paste0(Run_total,"_","blank","_",Light_dark))
 
-blanks %>% ggplot(aes(x=as.numeric(Light_dark), y=micromol.s.blank,colour = as.factor(Run_total)))+
+blanks %>% ggplot(aes(x=as.factor(Light_dark), y=micromol.s.blank,colour = as.factor(Run_total)))+
   geom_point()
 
 mean.blank <- blanks %>%
@@ -237,14 +252,13 @@ anova(lm(blanks$micromol.s.blank~as.numeric(blanks$Light_dark)))
 # specific.blanks <- read_csv(file = "data/1_pi_curves/blank_groups.csv")
 # blanks <-  left_join(blanks,specific.blanks, keep=F)
 
-pr <- pr %>% mutate(micromol.s = micromol.L.s * Chamber_vol)
+pr <- pr %>% mutate(micromol.s = micromol.L.s * Chamber.vol.L)
 
 #pr <-  left_join(pr, blanks, by="blank_id", keep=F)
 
 #Join blank values with rest of data and subtract values from samples for same run and light value
 pr <- pr %>%
-  #mutate(micromol.s.adj = micromol.s - -0.0003515243) %>%
-  mutate(micromol.s.adj = micromol.s - mean.blank) %>%
+  mutate(micromol.s.adj = micromol.s - (-0.0001114065)) %>% # using mean blank value
   # After correcting for blank values, remove blanks from data
   filter(!grepl("BLNK", colony_id))
 
@@ -254,22 +268,93 @@ pr <- pr %>%
 # 
 # pr  <- pr  %>%
 #   rename(Light_Value = Light_Value.x)
-```
 
-
-### LEFT OFF HERE - need to double check previous code block
-
-```{r Correct for surface area}
-# Import surface area data
-sa <- read.csv("output/1_surface_area.csv")
+# Import surface area data 
+#sa <- read.csv("output/1_surface_area.csv") # NEED UPDATED SA DATA
 
 # Join surface area with rest of data
-pr <- left_join(pr, select(sa, colony_id, surface.area.cm2))
+# pr <- left_join(pr, select(sa, colony_id, surface.area.cm2)) # COMMENTED OUT UNTIL SA DATA AVAILABLE
+
 
 # Normalize rates by surface area
+#pr <- pr %>%
+#  mutate(micromol.cm2.s = micromol.s.adj / surface.area.cm2,
+#         micromol.cm2.h = micromol.cm2.s * 3600)
+
+# Divide by ten for surface area until data is available
 pr <- pr %>%
-  mutate(micromol.cm2.s = micromol.s.adj / surface.area.cm2,
+  mutate(micromol.cm2.s = micromol.s.adj / 10,
          micromol.cm2.h = micromol.cm2.s * 3600)
+```
+# Write to output file
+```{r Write calculated rates to output file}
+# Select variables to write to file
+pr.out <- pr %>% 
+  dplyr::select(Species, colony_initial, colony_id, Light_dark, Run_total, Treatment, micromol.cm2.s, micromol.cm2.h) %>%
+  mutate(timepoint="timepoint1")
+
+# Write to output file
+write.csv(pr.out, "output/oxy10-rates.csv")
+```
+
+# Data visualizations
+
+## Read and modify dataframe
+
+```{r Read processed Oxy10 data}
+#rm(list=ls()) # Clear working environment
+data <- read.csv(file = 'output/oxy10-rates.csv') %>%
+  dplyr::select(-X) %>% 
+  mutate(Treatment_overall = gsub(" .*", "", Treatment)) %>% # read Oxy10 data 
+  filter(!colony_id %in% c("PAST-IPA09")) %>% # Remove outlier data
+  filter(!Run_total == 28) %>% # Something funky happening with time delimiters in run 28
+  filter(!grepl("I", colony_id)) # Remove in situ samples for now
+```
+
+## Add timepoint identifiers to data frame
+
+```{r Timepoint assignments}
+data$timepoint <- ifelse(data$Run_total > 0 & data$Run_total <= 12, 0,
+                         ifelse(data$Run_total > 12 & data$Run_total <= 20, 1,
+                         ifelse(data$Run_total > 20 & data$Run_total <= 26, 2,
+                         ifelse(data$Run_total > 26 & data$Run_total <= 38, 3, 4
+                         ))))
+```
+
+## Data plots
+
+Plot photosynthesis and respiration for each colony over time, starting with photosynthesis
+
+```{r}
+photo.colony.track <- data %>% subset(Light_dark == 1) %>% 
+  ggplot(aes(timepoint, micromol.cm2.h)) +
+  #geom_boxplot(aes(color=Species)) +
+  geom_point(aes(color=Species, alpha=Treatment_overall)) +
+  geom_line(aes(color=Species, alpha=Treatment_overall, shape=Treatment_overall), stat="identity") +
+  scale_alpha_manual(values = c(1,0.35)) +
+  facet_wrap(~colony_initial) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+photo.colony.track
+
+ggsave(photo.colony.track, filename = 'output/photo.colony.track.pdf', height = 6, width = 8)
+```
+
+Now plot respiration data.
+
+```{r}
+photo.colony.track <- data %>% subset(Light_dark == 0) %>% 
+  ggplot(aes(timepoint, micromol.cm2.h)) +
+  #geom_boxplot(aes(color=Species)) +
+  geom_point(aes(color=Species, alpha=Treatment_overall)) +
+  geom_line(aes(color=Species, alpha=Treatment_overall, shape=Treatment_overall), stat="identity") +
+  scale_alpha_manual(values = c(1,0.35)) +
+  facet_wrap(~colony_initial) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+photo.colony.track
+
+ggsave(photo.colony.track, filename = 'output/resp.colony.track.pdf', height = 6, width = 8)
 ```
 
 
