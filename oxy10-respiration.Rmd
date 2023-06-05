@@ -57,6 +57,7 @@ metadata <-as.tibble(metadata)
 
 # Convert chamber volume to L
 metadata$Chamber.vol.L <- metadata$Chamber_vol/1000
+metadata$Surface_area <- metadata$Surface_area/100
 
 # We need to manipulate the metadata table to vertically stack start/stop times for light versus dark incubations
 metadata <- metadata %>% slice(rep(1:n(), each = 2))
@@ -87,7 +88,7 @@ metadata <- metadata %>%
   mutate(colony_initial = substr(fragment_id, 1, 1)) %>%
   mutate(colony_initial = paste(Species, colony_initial, sep="-")) %>%
   subset(Experiment=="Thermal") %>% 
-  dplyr::select(Species, colony_initial, colony_id, Run_total, Treatment, Chamber.vol.L, Date, Start.time, Stop.time, Light_dark)
+  dplyr::select(Species, colony_initial, colony_id, Surface_area, Run_total, Treatment, Chamber.vol.L, Date, Start.time, Stop.time, Light_dark)
 
 metadata$colony_initial <- ifelse(metadata$colony_initial == "I", "in situ", metadata$colony_initial)
 ```
@@ -220,7 +221,7 @@ df.out <- df %>%
 ### Merge rates with sample info
 pr <- left_join(
   dplyr::select(df.out,colony_id, Light_dark, micromol.L.s),
-  distinct(metadata, Species, colony_initial, colony_id, Run_total, Treatment, Chamber.vol.L))
+  distinct(metadata, Species, colony_initial, colony_id, Surface_area, Run_total, Treatment, Chamber.vol.L))
 ```
 
 # Correct for chamber volume and blanks
@@ -283,7 +284,7 @@ pr <- pr %>%
 
 # Divide by ten for surface area until data is available
 pr <- pr %>%
-  mutate(micromol.cm2.s = micromol.s.adj / 10,
+  mutate(micromol.cm2.s = micromol.s.adj / Surface_area,
          micromol.cm2.h = micromol.cm2.s * 3600)
 ```
 # Write to output file
@@ -334,6 +335,7 @@ photo.colony.track <- data %>% subset(Light_dark == 1) %>%
   scale_alpha_manual(values = c(1,0.35)) +
   facet_wrap(~colony_initial) +
   theme_bw() +
+  labs(title="Photosynthesis") +
   theme(panel.grid = element_blank())
 photo.colony.track
 
@@ -343,7 +345,7 @@ ggsave(photo.colony.track, filename = 'output/photo.colony.track.pdf', height = 
 Now plot respiration data.
 
 ```{r}
-photo.colony.track <- data %>% subset(Light_dark == 0) %>% 
+resp.colony.track <- data %>% subset(Light_dark == 0) %>% 
   ggplot(aes(timepoint, micromol.cm2.h)) +
   #geom_boxplot(aes(color=Species)) +
   geom_point(aes(color=Species, alpha=Treatment_overall)) +
@@ -351,10 +353,11 @@ photo.colony.track <- data %>% subset(Light_dark == 0) %>%
   scale_alpha_manual(values = c(1,0.35)) +
   facet_wrap(~colony_initial) +
   theme_bw() +
+  labs(title="Respiration") +
   theme(panel.grid = element_blank())
-photo.colony.track
+resp.colony.track
 
-ggsave(photo.colony.track, filename = 'output/resp.colony.track.pdf', height = 6, width = 8)
+ggsave(resp.colony.track, filename = 'output/resp.colony.track.pdf', height = 6, width = 8)
 ```
 
 
