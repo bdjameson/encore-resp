@@ -1,0 +1,139 @@
+---
+title: "Mesocosm Light Test Data"
+author: "Ruth"
+date: "2023-06-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Ruth is great at coding
+
+Data loading and cleaning.
+
+```{r}
+library(readr)
+AllData <- read_csv("AllData.csv")
+#install.packages("ggplot2")
+library("ggplot2")
+#install.packages("tidyverse")
+library("tidyverse")
+#install.packages("lubridate")
+library("lubridate")
+
+
+
+
+AllData<- rename(AllData, Date = "Date Time, GMT-03:00", Temperature = "Temp, °C (LGR S/N: 1058708, SEN S/N: 1058708)"  , PAR = "PAR,  µmol photon m^-2 s^-1")
+
+
+AllData$Date <- mdy_hms(AllData$Date)
+
+AllData<- AllData %>%
+  filter(Date < "2023-06-28 03:00:00")
+
+```
+
+PAR Plot 1 coding of all data. Plot 1 compares the PAR data from all 3 tanks and the wall.
+
+```{r}
+ggplot(AllData, aes(x=Date , y= PAR, color=Position)) + 
+  geom_line() + 
+  facet_wrap(vars(Tank)) + 
+  ylab("PAR (µmol photon m^-2 s^-1)") +
+  labs (title = "Underwater PAR Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "All Data", caption = "This graph compares the amount of light that 3 tanks recieved on the rim and underwater and compares that to the direct sunlight (Wall).")
+```
+
+New version of PAR Plot 1 not including the Rim and Wall Data.
+
+```{r}
+
+TankData<- AllData %>%
+filter(Position != c('Rim')) %>%
+  filter(Position != c('Wall')) 
+
+ggplot(TankData, aes(x=Date , y= PAR, color=Position)) + 
+  geom_line() + 
+  facet_wrap(vars(Tank)) +
+   ylab("PAR (µmol photon m^-2 s^-1)") +
+  labs (title = "Underwater PAR Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "Only Data Collected Underwater Inside the Tanks", caption = "This graph compares the distribution of light underwater in each tank that was measured.")
+
+
+```
+
+New version of PAR Plot 2 with the Position and Tank variable switched around.
+
+```{r}
+ggplot(TankData, aes(x=Date , y= PAR, color=Tank)) + 
+  geom_line() + 
+  facet_wrap(vars(Position)) + 
+  ylab("PAR (µmol photon m^-2 s^-1)") +
+  labs (title = "Underwater PAR Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "Compares the Light Measurements in Different Areas Underwater Inside the Tanks", caption = "This graph compares the distribution of light throughout the bottom surface of each tank that was measured.")
+```
+
+New Temp Plot comparing the Temp data from all 3 tanks and the wall.
+
+```{r}
+ggplot(AllData, aes(x=Date , y= Temperature, color=Position)) + 
+  geom_line() + 
+  facet_wrap(vars(Tank)) + 
+  labs (title = "Underwater Temperature Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "All Data", caption = "This graph compares the temperature that 3 tanks experienced on the rim and underwater and compares that to the direct sunlight (Wall).")
+```
+
+New verision of Temp Plot 1 excluding rim and wall data.
+
+```{r}
+ggplot(TankData, aes(x=Date , y= Temperature, color=Position)) + 
+  geom_line() + 
+  facet_wrap(vars(Tank)) +
+  labs (title = "Underwater Temperature Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "Only Data Collected Underwater Inside the Tanks", caption = "This graph compares the distribution of temperature experienced underwater in each tank that was measured.")
+```
+
+New version of Temp Plot 2 with Position and Tank variable switched around.
+
+```{r}
+ggplot(TankData, aes(x=Date , y= Temperature, color=Tank)) + 
+  geom_line() + 
+  facet_wrap(vars(Position)) + 
+  labs (title = "Underwater Temperature Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "Compares the Temperature Measurements in Different Areas Underwater Inside the Tanks", caption = "This graph compares the distribution of temperature experienced throughout the bottom surface of each tank that was measured.")
+```
+New Plot showing final calculated daily sunlight
+```{r}
+fcds <- read_csv("fcds.csv")
+
+fcds <- rename(fcds, PAR = "PAR, mol photon m^-2 day^-1")
+
+fcds_tank<- fcds %>%
+filter(Position != c('Rim')) %>%
+  filter(Position != c('Wall')) 
+
+
+ggplot(data=fcds_tank, aes(x= Position, y= PAR, fill= Tank)) + 
+  geom_bar(stat="identity") +
+  facet_wrap(vars(Tank)) +
+  ylab("PAR (mol photon m^-2 day^-1)") +
+ labs (title = "Underwater PAR Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "Final Calculated Daily Sunlight", caption = "These three barplots compare the amount of light in mol photon m^-2 day^-1 that different locations inside the tanks received.")
+
+#facet_wrap(vars(Tank)) + "PAR, mol photon m^-2 day^-1"
+```
+Mean and Standard Deviation of Final Calculated Daily Sunlight.
+```{r}
+Summary_Stats <- fcds_tank %>%
+ group_by(Tank) %>%
+ summarize (mean_PAR=mean(PAR, na.rm=TRUE), stdev_PAR=sd(PAR, na.rm=TRUE))
+
+# Define the top and bottom of the errorbars
+limits <- aes(ymax = mean_PAR + stdev_PAR, ymin=mean_PAR - stdev_PAR)
+
+```
+
+New Plot showing mean and standard deviation.
+```{r}
+ggplot(data=Summary_Stats, aes(x= Tank, y= mean_PAR, fill=Tank)) + 
+  geom_bar(aes(color= Tank),stat="identity") + geom_errorbar(limits, stat= "identity", width=0.1) +
+    ylab("Mean PAR (mol photon m^-2 day^-1)") +
+ labs (title = "Underwater PAR Measurements Over a 48 Hour Time Period in the Mesocosm", subtitle = "Final Calculated Daily Sunlight - Mean and Standard Deviation", caption = "This bar graph compares the average amount of light in mol photon m^-2 day^-1 that each tank received.")
+```
+
